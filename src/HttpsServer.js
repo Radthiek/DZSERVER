@@ -1,4 +1,4 @@
-﻿var http = require('http'),
+var http = require('http'),
     https = require('https'),
     inherits = require('util').inherits,
     httpSocketHandler = http._connectionListener;
@@ -9,17 +9,17 @@ var isOldNode = /^v0\.10\./.test(process.version);
 function Server(tlsconfig, requestListener) {
     if (!(this instanceof Server))
         return new Server(tlsconfig, requestListener);
-    
+
     if (typeof tlsconfig === 'function') {
         requestListener = tlsconfig;
         tlsconfig = undefined;
     }
-    
+
     if (typeof tlsconfig === 'object') {
         this.removeAllListeners('connection');
-        
+
         https.Server.call(this, tlsconfig, requestListener);
-        
+
         // capture https socket handler, it's not exported like http's socket
         // handler
         var connev = this._events.connection;
@@ -28,10 +28,10 @@ function Server(tlsconfig, requestListener) {
         else
             this._tlsHandler = connev[connev.length - 1];
         this.removeListener('connection', this._tlsHandler);
-        
+
         this._connListener = connectionListener;
         this.on('connection', connectionListener);
-        
+
         // copy from http.Server
         this.timeout = 2 * 60 * 1000;
         this.allowHalfOpen = false;

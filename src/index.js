@@ -27,7 +27,7 @@ Logger.info("\u001B[1m\u001B[32mMultiOgar-Edited " + gameServer.version + "\u001
 
 // Handle arguments
 process.argv.forEach(function (item) {
-    
+
     switch (item){
         case "--help":
             console.log("Proper Usage: node index.js");
@@ -42,31 +42,31 @@ process.argv.forEach(function (item) {
             console.log("    --help                 Help menu");
             console.log("");
             break;
-            
-        case "-n": 
-        case "--name": 
+
+        case "-n":
+        case "--name":
             setParam("serverName", getValue(item));
             break;
-            
-        case "-g": 
-        case "--gameport": 
+
+        case "-g":
+        case "--gameport":
             setParam("serverPort", parseInt(getValue(item)));
             break;
-        case "-s": 
-        case "--statsport": 
+        case "-s":
+        case "--statsport":
             setParam("serverStatsPort", parseInt(getValue(item)));
             break;
-            
-        case "-m": 
+
+        case "-m":
         case "--gamemode":
             setParam("serverGamemode", getValue(item));
             break;
-            
-        case "-c": 
+
+        case "-c":
         case "--connections":
             setParam("serverMaxConnections", parseInt(getValue(item)));
             break;
-        case "-t": 
+        case "-t":
         case "--tracker":
             setParam("serverTracker", parseInt(getValue(item)));
             break;
@@ -75,7 +75,7 @@ process.argv.forEach(function (item) {
         case "--light-background":
             //Has already been processed before logger initialisation
             break;
-        
+
         case "--noconsole":
             showConsole = false;
             break;
@@ -150,17 +150,17 @@ function prompt() {
 function parseCommands(str) {
     // Log the string
     Logger.write(">" + str);
-    
+
     // Don't process ENTER
     if (str === '')
         return;
-    
+
     // Splits the string
     var split = str.split(" ");
-    
+
     // Process the first string value
     var first = split[0].toLowerCase();
-    
+
     // Get command function
     var execute = Commands.list[first];
     if (typeof execute != 'undefined') {
@@ -168,4 +168,6 @@ function parseCommands(str) {
     } else {
         Logger.warn("Invalid Command!");
     }
-}
+};
+
+exports.gameServer = gameServer;

@@ -5,8 +5,6 @@ var http = require('http');
 var Entity = require('./entity');
 var Vec2 = require('./modules/Vec2');
 var Logger = require('./modules/Logger');
-var Rectangle = require('./modules/Rectangle');
-var PluginHandler = require('./PluginHandler');
 
 // GameServer implementation
 function GameServer() {
@@ -17,7 +15,6 @@ function GameServer() {
     this.run = true;
     this.version = '1.6.1';
     this.httpServer = null;
-    this.troll = [];
     this.lastNodeId = 1;
     this.lastPlayerId = 1;
     this.clients = [];
@@ -35,7 +32,7 @@ function GameServer() {
 
     var BotLoader = require('./ai/BotLoader');
     this.bots = new BotLoader(this);
-    this.PluginHandler = new PluginHandler(this);
+
     // Main loop tick
     this.startTime = Date.now();
     this.stepDateTime = 0;
@@ -69,7 +66,8 @@ function GameServer() {
         serverStatsPort: 88, // Port for stats server. Having a negative number will disable the stats server.
         serverStatsUpdate: 60, // Update interval of server stats in seconds
         mobilePhysics: 0, // Whether or not the server uses mobile agar.io physics
-        serverRestart: 60,          //cowpits restart config 
+        badWordFilter: 1, // Toggle whether you want the bad word filter on (0 to disable, 1 to enable)
+        serverRestart: 0, // Toggle whether you want your server to auto restart in minutes. (0 to disable)
 
         /** CLIENT **/
         serverMaxLB: 10, // Controls the maximum players displayed on the leaderboard.
@@ -105,6 +103,8 @@ function GameServer() {
         /** VIRUSES **/
         virusMinSize: 100, // Minimum virus size. (vanilla: mass = val*val/100 = 100 mass)
         virusMaxSize: 141.421356237, // Maximum virus size (vanilla: mass = val*val/100 = 200 mass)
+        virusMaxPoppedSize: 60, // Maximum size a popped cell can have
+        virusEqualPopSize: 0, // Whether popped cells have equal size or not (1 to enable)
         virusMinAmount: 50, // Minimum number of viruses on the map.
         virusMaxAmount: 100, // Maximum number of viruses on the map. If this number is reached, then ejected cells will pass through viruses.
         motherCellMaxMass: 0, // Maximum amount of mass a mothercell is allowed to have (0 for no limit)
@@ -137,11 +137,13 @@ function GameServer() {
         /** MINIONS **/
         minionStartSize: 31.6227766017, // Start size of minions (mass = 32*32/100 = 10.24)
         minionMaxStartSize: 31.6227766017, // Maximum value of random start size for minions (set value higher than minionStartSize to enable)
+        minionCollideTeam: 0, //Determines whether minions colide with their team in the Teams gamemode (0 = OFF, 1 = ON)
         disableERTP: 1, // Whether or not to disable ERTP controls for minions. (must use ERTPcontrol script in /scripts) (Set to 0 to enable)
         disableQ: 0, // Whether or not to disable Q controls for minions. (Set 0 to enable)
         serverMinions: 0, // Amount of minions each player gets once they spawn
         collectPellets: 0, // Enable collect pellets mode. To use just press P or Q. (Warning: this disables Q controls, so make sure that disableERT is 0)
         defaultName: "minion", // Default name for all minions if name is not specified using command (put <r> before the name for random skins!)
+        minionsOnLeaderboard: 0, // Whether or not to show minions on the leaderboard. (Set 0 to disable)
 
         /** TOURNAMENT **/
         tourneyMaxPlayers: 12, // Maximum number of participants for tournament style game modes
@@ -150,6 +152,7 @@ function GameServer() {
         tourneyTimeLimit: 20, // Time limit of the game, in minutes.
         tourneyAutoFill: 0, // If set to a value higher than 0, the tournament match will automatically fill up with bots after this amount of seconds
         tourneyAutoFillPlayers: 1, // The timer for filling the server with bots will not count down unless there is this amount of real players
+        tourneyLeaderboardToggleTime: 10, //Time for toggling the leaderboard, in seconds.If value set to 0, leaderboard will not toggle.
     };
 
     this.ipBanList = [];
@@ -167,7 +170,6 @@ function GameServer() {
 module.exports = GameServer;
 
 GameServer.prototype.start = function () {
-    this.PluginHandler.load();
     this.timerLoopBind = this.timerLoop.bind(this);
     this.mainLoopBind = this.mainLoop.bind(this);
 
@@ -194,9 +196,6 @@ GameServer.prototype.start = function () {
     this.wsServer.on('connection', this.onClientSocketOpen.bind(this));
     this.httpServer.listen(this.config.serverPort, this.config.serverBind, this.onHttpServerOpen.bind(this));
 
-    this.time = this.config.serverRestart; //cowpits server restart code  
-    setTimeout(function(){process.exit(1);}, this.time * 60 * 1000); //cowpits server restart code
-
     // Start stats port (if needed)
     if (this.config.serverStatsPort > 0) {
         this.startStatsServer(this.config.serverStatsPort);
@@ -217,17 +216,6 @@ GameServer.prototype.onHttpServerOpen = function () {
             this.bots.addBot();
         Logger.info("Added " + this.config.serverBots + " player bots");
     }
-};
-
-GameServer.prototype.rangeBorders = function() {
-    var w = this.config.borderRight - this.config.borderLeft,
-        h = this.config.borderBottom - this.config.borderTop;
-    return new Rectangle(
-        this.config.borderLeft + w / 2,
-        this.config.borderTop + w / 2,
-        w / 2,
-        h / 2
-    );
 };
 
 GameServer.prototype.addNode = function (node) {
@@ -265,7 +253,8 @@ GameServer.prototype.onServerSocketError = function (error) {
     process.exit(1); // Exits the program
 };
 
-GameServer.prototype.onClientSocketOpen = function (ws) {
+GameServer.prototype.onClientSocketOpen = function (ws, req) {
+    var req = req || ws.upgradeReq;
     var logip = ws._socket.remoteAddress + ":" + ws._socket.remotePort;
     ws.on('error', function (err) {
         Logger.writeError("[" + logip + "] " + err.stack);
@@ -291,7 +280,7 @@ GameServer.prototype.onClientSocketOpen = function (ws) {
             return;
         }
     }
-    if (this.config.clientBind.length && this.clientBind.indexOf(ws.upgradeReq.headers.origin) < 0) {
+    if (this.config.clientBind.length && req.headers.origin.indexOf(this.clientBind) < 0) {
         ws.close(1000, "Client not allowed");
         return;
     }
@@ -299,7 +288,7 @@ GameServer.prototype.onClientSocketOpen = function (ws) {
     ws.remoteAddress = ws._socket.remoteAddress;
     ws.remotePort = ws._socket.remotePort;
     ws.lastAliveTime = Date.now();
-    Logger.write("CONNECTED " + ws.remoteAddress + ":" + ws.remotePort + ", origin: \"" + ws.upgradeReq.headers.origin + "\"");
+    Logger.write("CONNECTED " + ws.remoteAddress + ":" + ws.remotePort + ", origin: \"" + req.headers.origin + "\"");
 
 
     var PlayerTracker = require('./PlayerTracker');
@@ -313,7 +302,7 @@ GameServer.prototype.onClientSocketOpen = function (ws) {
     ws.on('message', function (message) {
         if (self.config.serverWsModule === "uws")
             // uws gives ArrayBuffer - convert it to Buffer
-            message = parseInt(process.version[1]) < 6 ? new Buffer(message) : Buffer.from(message);
+            message = parseInt(process.version[1]) < 6 ? Buffer.from(message) : Buffer.from(message);
 
         if (!message.length) return;
         if (message.length > 256) {
@@ -326,7 +315,7 @@ GameServer.prototype.onClientSocketOpen = function (ws) {
         ws.packetHandler.sendPacket = function (data) {};
     });
     ws.on('close', function (reason) {
-        if (ws._socket.destroy != null && typeof ws._socket.destroy == 'function') {
+        if (ws._socket && ws._socket.destroy != null && typeof ws._socket.destroy == 'function') {
             ws._socket.destroy();
         }
         self.socketCount--;
@@ -344,13 +333,13 @@ GameServer.prototype.onClientSocketOpen = function (ws) {
     this.clients.push(ws);
 
     // Check for external minions
-    this.checkMinion(ws);
+    this.checkMinion(ws, req);
 };
 
-GameServer.prototype.checkMinion = function (ws) {
+GameServer.prototype.checkMinion = function (ws, req) {
     // Check headers (maybe have a config for this?)
-    if (!ws.upgradeReq.headers['user-agent'] || !ws.upgradeReq.headers['cache-control'] ||
-        ws.upgradeReq.headers['user-agent'].length < 50) {
+    if (!req.headers['user-agent'] || !req.headers['cache-control'] ||
+        req.headers['user-agent'].length < 50) {
         ws.playerTracker.isMinion = true;
     }
     // External minion detection
@@ -422,8 +411,8 @@ GameServer.prototype.getRandomColor = function () {
     // return random
     return {
         r: colorRGB[0],
-        b: colorRGB[1],
-        g: colorRGB[2]
+        g: colorRGB[1],
+        b: colorRGB[2]
     };
 };
 
@@ -503,14 +492,6 @@ GameServer.prototype.updateLeaderboard = function () {
     }
 };
 
-GameServer.prototype.getNextNodeId = function() {
-    // Resets integer
-    if (this.lastNodeId > 2147483647) {
-        this.lastNodeId = 1;
-    }
-    return this.lastNodeId++;
-};
-
 GameServer.prototype.onChatMessage = function (from, to, message) {
     if (!message) return;
     message = message.trim();
@@ -547,12 +528,11 @@ GameServer.prototype.onChatMessage = function (from, to, message) {
 
 GameServer.prototype.checkBadWord = function (value) {
     if (!value) return false;
-    value = value.toLowerCase().trim();
-    if (!value) return false;
-    var split = value.split(" ");
+    value = " " + value.toLowerCase().trim() + " ";
     for (var i = 0; i < this.badWords.length; i++) {
-        for (var j = 0; j < split.length; j++)
-            if (split[j] === this.badWords[i]) return true;
+        if (value.indexOf(this.badWords[i]) >= 0) {
+            return true;
+        }
     }
     return false;
 };
@@ -563,7 +543,7 @@ GameServer.prototype.sendChatMessage = function (from, to, message) {
         if (!to || to == this.clients[i].playerTracker) {
             var Packet = require('./packet');
             if (this.config.separateChatForTeams && this.gameMode.haveTeams) {
-                //  from equals null if message from server 
+                //  from equals null if message from server
                 if (from == null || from.team === this.clients[i].playerTracker.team) {
                     this.clients[i].packetHandler.sendPacket(new Packet.ChatMessage(from, message));
                 }
@@ -595,6 +575,36 @@ GameServer.prototype.mainLoop = function () {
     this.stepDateTime = Date.now();
     var tStart = process.hrtime();
     var self = this;
+
+    // Restart
+    if (this.tickCounter > this.config.serverRestart) {
+        var QuadNode = require('./modules/QuadNode.js');
+        this.httpServer = null;
+        this.wsServer = null;
+        this.run = true;
+        this.lastNodeId = 1;
+        this.lastPlayerId = 1;
+        for (var i = 0; i < this.clients.length; i++) {
+            var client = this.clients[i];
+            client.close();
+        };
+        this.nodes = [];
+        this.nodesVirus = [];
+        this.nodesFood = [];
+        this.nodesEjected = [];
+        this.nodesPlayer = [];
+        this.movingNodes = [];
+        if (this.config.serverBots) {
+            for (var i = 0; i < this.config.serverBots; i++)
+                this.bots.addBot();
+            Logger.info("Added " + this.config.serverBots + " player bots");
+        };
+        this.commands;
+        this.tickCounter = 0;
+        this.startTime = Date.now();
+        this.setBorder(this.config.borderWidth, this.config.borderHeight);
+        this.quadTree = new QuadNode(this.border, 64, 32);
+    };
 
     // Loop main functions
     if (this.run) {
@@ -762,10 +772,16 @@ GameServer.prototype.checkCellCollision = function (cell, check) {
 GameServer.prototype.checkRigidCollision = function (m) {
     if (!m.cell.owner || !m.check.owner)
         return false;
+
     if (m.cell.owner != m.check.owner) {
-        // Different owners => same team
-        return this.gameMode.haveTeams &&
-            m.cell.owner.team == m.check.owner.team;
+        // Minions don't collide with their team when the config value is 0
+        if (this.gameMode.haveTeams && m.check.owner.isMi || m.cell.owner.isMi && this.config.minionCollideTeam === 0) {
+            return false;
+        } else {
+            // Different owners => same team
+            return this.gameMode.haveTeams &&
+                m.cell.owner.team == m.check.owner.team;
+        }
     }
     var r = this.config.mobilePhysics ? 1 : 13;
     if (m.cell.getAge() < r || m.check.getAge() < r) {
@@ -876,7 +892,7 @@ GameServer.prototype.spawnPlayer = function (player, pos) {
     if (player.spawnmass) size = player.spawnmass;
 
     // Check if can spawn from ejected mass
-    var index = (this.nodesEjected.length - 1) * ~~Math.random();
+    var index = ~~(this.nodesEjected.length * Math.random());
     var eject = this.nodesEjected[index]; // Randomly selected
     if (Math.random() <= this.config.ejectSpawnPercent &&
         eject && eject.boostDistance < 1) {
@@ -1037,10 +1053,10 @@ GameServer.prototype.loadFiles = function () {
             var words = fs.readFileSync(fileNameBadWords, 'utf-8');
             words = words.split(/[\r\n]+/);
             words = words.map(function (arg) {
-                return arg.trim().toLowerCase();
+                return " " + arg.trim().toLowerCase() + " "; // Formatting
             });
             words = words.filter(function (arg) {
-                return !!arg;
+                return arg.length > 2;
             });
             this.badWords = words;
             Logger.info(this.badWords.length + " bad words loaded");
@@ -1109,6 +1125,9 @@ GameServer.prototype.loadFiles = function () {
         Logger.error(err.stack);
         Logger.error("Failed to load " + fileNameIpBan + ": " + err.message);
     }
+
+    // Convert config settings
+    this.config.serverRestart = this.config.serverRestart === 0 ? 1e999 : this.config.serverRestart * 1500;
 };
 
 GameServer.prototype.startStatsServer = function (port) {
