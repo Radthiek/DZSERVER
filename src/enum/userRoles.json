@@ -1,0 +1,26 @@
+[
+    { 
+        "ip":"41.101.213.242", 
+        "password":"rad231",
+        "role":"ADMIN",
+        "name":"Local Administrator" 
+    },
+    { 
+        "ip":"", 
+        "password":"",
+        "role":"",
+        "name":"Local Joker" 
+    },
+    { 
+        "ip":"", 
+        "password":"",
+        "role":"",
+        "name":"Local Joker" 
+    },
+    { 
+        "ip":"", 
+        "password":"",
+        "role":"USER",
+        "name":"Local User" 
+    }
+]

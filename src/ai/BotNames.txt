@@ -1,0 +1,10 @@
+rad 1
+rad 2 
+rad 3
+rad 4
+rad 5 
+rad 6
+rad 7
+rad 8
+rad 9
+rad 10
